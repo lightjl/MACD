@@ -67,7 +67,17 @@ def set_feasible_stocks(initial_stocks,context):
     unsuspened_stocks = list(df_st_info.index[df_st_info.is_st == False])
     return unsuspened_stocks
 
-
+def remove_paused_stock(initial_stocks,context):
+    # 判断初始股票池的股票是否停牌，返回list
+    paused_info = []
+    current_data = get_current_data()
+    for i in initial_stocks:
+        paused_info.append(current_data[i].paused)
+    df_paused_info = pd.DataFrame({'paused_info':paused_info},index = initial_stocks)
+    unsuspened_stocks =list(df_paused_info.index[df_paused_info.paused_info == False])
+    return unsuspened_stocks
+    
+    
 #5
 # 根据不同的时间段设置滑点与手续费
 # 输入：context（见API）
@@ -100,6 +110,8 @@ def handle_data(context,data):
         list_can_buy = stocks_can_buy(context)
         # 待卖出的股票，list类型
         list_to_sell = stocks_to_sell(context)
+        # 过滤掉当日停牌的股票
+        list_to_sell = remove_paused_stock(list_to_sell,context)
         # 需买入的股票
         list_to_buy = pick_buy_list(context, list_can_buy, list_to_sell)
         # 卖出操作
@@ -125,7 +137,7 @@ def stocks_to_sell(context):
 # 输出list_to_buy 为list，买入的队列
 def pick_buy_list(context, list_can_buy, list_to_sell):
     list_to_buy = []
-    # 要买数 = 可持数 - 持仓数 + 要卖数（todo: 有些卖不出）
+    # 要买数 = 可持数 - 持仓数 + 要卖数
     buy_num = g.num_stocks - len(context.portfolio.positions.keys()) + len(list_to_sell)
     if buy_num <= 0:
         return list_to_buy
