@@ -108,6 +108,14 @@ def handle_data(context,data):
     if g.if_trade == True:
         # 待买入的g.num_stocks支股票，list类型
         list_can_buy = stocks_can_buy(context)
+        '''
+        # test 
+        list_can_buy = ['000001.XSHE']
+        df_list_can_buy = pd.DataFrame(index=list_can_buy,columns=['todo', 'num'])
+        df_list_can_buy.loc['000001.XSHE', 'todo'] = 'buy'
+        log.info(df_list_can_buy)
+        # 000001.XSHE  buy  NaN
+        '''
         # 待卖出的股票，list类型
         list_to_sell = stocks_to_sell(context)
         # 过滤掉当日停牌的股票
@@ -143,7 +151,9 @@ def pick_buy_list(context, list_can_buy, list_to_sell):
         return list_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
     # 排序-------------------------------------------------
-    ad_num = 0;
+    ad_num = 0;    
+    
+    
     for i in list_can_buy:
         if i not in context.portfolio.positions.keys():
             list_to_buy.append(i)
