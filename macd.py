@@ -136,7 +136,7 @@ def pick_buy_list(context, list_can_buy, list_to_sell):
         if i not in context.portfolio.positions.keys():
             list_to_buy.append(i)
             ad_num = ad_num + 1
-        if ad_num >= buy_num
+        if ad_num >= buy_num:
             break
     return list_to_buy
 
