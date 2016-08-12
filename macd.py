@@ -67,6 +67,9 @@ def set_feasible_stocks(initial_stocks,context):
     unsuspened_stocks = list(df_st_info.index[df_st_info.is_st == False])
     return unsuspened_stocks
 
+# 过滤掉当日停牌的股票
+# 输入：initial_stocks为list类型,表示股票列表； context（见API）
+# 输出：unsuspened_stocks为list类型，表示当日未停牌的股票
 def remove_paused_stock(initial_stocks,context):
     # 判断初始股票池的股票是否停牌，返回list
     paused_info = []
@@ -107,15 +110,17 @@ def set_slip_fee(context):
 def handle_data(context,data):
     if g.if_trade == True:
         # 待买入的g.num_stocks支股票，list类型
-        list_can_buy = stocks_can_buy(context)
+        df_can_buy = stocks_can_buy(context, g.feasible_stocks)
+        
         '''
         # test 
-        list_can_buy = ['000001.XSHE']
-        df_list_can_buy = pd.DataFrame(index=list_can_buy,columns=['todo', 'num'])
+        df_can_buy = ['000001.XSHE']
+        df_list_can_buy = pd.DataFrame(index=list_can_buy,columns=['todo', 'done'])
         df_list_can_buy.loc['000001.XSHE', 'todo'] = 'buy'
         log.info(df_list_can_buy)
         # 000001.XSHE  buy  NaN
         '''
+        
         # 待卖出的股票，list类型
         list_to_sell = stocks_to_sell(context)
         # 过滤掉当日停牌的股票
@@ -128,9 +133,19 @@ def handle_data(context,data):
         buy_operation(context, list_to_buy)
     g.if_trade = False
     
-def stocks_can_buy(context):
-    list_to_buy = []
-    return list_to_buy
+def stocks_can_buy(context, list_stock):
+    df_can_buy = pd.DataFrame(columns=['todo', 'done'])
+    for i in list_stock:
+        DIF, DEA, MACD = mmacd(i)
+        # DIF 上穿 0 轴 并且 MACD 红柱发散
+        if DIF[-2] < 0 and DIF[-1] > 0 and MACD[-2] > MACD[-1] and MACD[-2] > 0:
+            df_can_buy.append(pd.DataFrame(['buy',], index=i, columns=['todo', 'done'])
+            
+    return df_can_buy
+    
+def mmacd(stock, fastperiod=12, slowperiod=26, signalperiod=9):
+    close_data = attribute_history(stock, 100, unit='1d', fields=('close'))
+    return talib.MACD(price, fastperiod=12, slowperiod=26, signalperiod=9)
     
 #8
 # 获得卖出信号
@@ -138,6 +153,13 @@ def stocks_can_buy(context):
 # 输出：list_to_sell为list类型，表示待卖出的股票
 def stocks_to_sell(context):
     list_to_sell = []
+    df_hold = pd.DataFrame(index = context.portfolio.positions.keys(), columns=['todo', 'done'])
+    if df_hold.empty:
+        return list_to_sell
+    for i in df_hold.index:
+        close_data = attribute_history(i, 100, unit='1d', fields=('close'))
+        DIF, DEA, MACD = mmacd(close_data['close'].values)
+        #log.info(DIF, DEA, MACD)
     return list_to_sell
     
 # 获得买入的list_to_buy
@@ -151,8 +173,7 @@ def pick_buy_list(context, list_can_buy, list_to_sell):
         return list_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
     # 排序-------------------------------------------------
-    ad_num = 0;    
-    
+    ad_num = 0;
     
     for i in list_can_buy:
         if i not in context.portfolio.positions.keys():
