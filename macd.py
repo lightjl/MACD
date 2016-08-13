@@ -16,10 +16,11 @@ def initialize(context):
 #1 
 #设置策略参数
 def set_params():
-    g.tc = 1                                 # 调仓天数
-    g.num_stocks = 10                        # 每次调仓选取的最大股票数量
-    g.stocks=get_index_stocks('000300.XSHG') # 设置沪深300为初始股票池
-    g.per = 0.1                              # EPS增长率不低于0.25
+    g.tc = 1                                                # 调仓天数
+    g.num_stocks = 10                                       # 每次调仓选取的最大股票数量
+    g.stocks=get_index_stocks('000300.XSHG')                # 设置沪深300为初始股票池
+    g.per = 0.1                                             # EPS增长率不低于0.25
+    g.df_hold = pd.DataFrame(columns=['lastdo', 'price'])   # 维护持有df
 
 #2
 #设置中间变量
@@ -125,17 +126,21 @@ def handle_data(context,data):
         log.info(df_can_buy)
         # 000001.XSHE  buy  NaN
         '''
-        
+        # data.drop(n)可以删除第i行
         # 待卖出的股票，list类型
         list_to_sell = stocks_to_sell(context)
         # 过滤掉当日停牌的股票
         list_to_sell = remove_paused_stock(list_to_sell,context)
         # 需买入的股票
-        list_to_buy = pick_buy_list(context, df_can_buy.index, list_to_sell)
+        df_to_buy = pick_buy_list(context, df_can_buy.index, list_to_sell)
         # 卖出操作
+        
+        # 测试
+        list_to_sell = g.df_hold.index
+        
         sell_operation(list_to_sell)
         # 买入操作
-        buy_operation(context, list_to_buy)
+        buy_operation(context, df_to_buy)
     g.if_trade = False
     
 def stocks_can_buy(context, list_stock):
@@ -163,10 +168,10 @@ def mmacd(stock, fastperiod=12, slowperiod=26, signalperiod=9):
 # 输出：list_to_sell为list类型，表示待卖出的股票
 def stocks_to_sell(context):
     list_to_sell = []
-    df_hold = pd.DataFrame(index = context.portfolio.positions.keys(), columns=['todo', 'done'])
-    if df_hold.empty:
+    
+    if g.df_hold.empty:
         return list_to_sell
-    for i in df_hold.index:
+    for i in g.df_hold.index:
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(i)
         #log.info(DIF, DEA, MACD)
@@ -176,22 +181,26 @@ def stocks_to_sell(context):
 # 输入list_can_buy 为list，可以买的队列
 # 输出list_to_buy 为list，买入的队列
 def pick_buy_list(context, list_can_buy, list_to_sell):
-    list_to_buy = []
+    df_to_buy = pd.DataFrame(columns=['todo', 'done'])
     # 要买数 = 可持数 - 持仓数 + 要卖数
     buy_num = g.num_stocks - len(context.portfolio.positions.keys()) + len(list_to_sell)
     if buy_num <= 0:
-        return list_to_buy
+        return df_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
     # 排序-------------------------------------------------
     ad_num = 0;
     
     for i in list_can_buy:
         if i not in context.portfolio.positions.keys():
+            list_to_buy = []
             list_to_buy.append(i)
+            # todo 检查是否已买
+            df_now = pd.DataFrame([['buy', 'notdo']], index=list_to_buy, columns=['todo', 'done'])
+            df_to_buy = df_to_buy.append(df_now)
             ad_num = ad_num + 1
         if ad_num >= buy_num:
             break
-    return list_to_buy
+    return df_to_buy
 
 
 '''
@@ -204,15 +213,27 @@ def pick_buy_list(context, list_can_buy, list_to_sell):
 # 输出：none
 def sell_operation(list_to_sell):
     for stock_sell in list_to_sell:
-        order_target_value(stock_sell, 0)
+        order_now = order_target_value(stock_sell, 0)
+        if not order_now is None:
+            g.df_hold = g.df_hold.drop(stock_sell)
         
 #10
 # 执行买入操作
 # 输入：context(见API)；list_to_buy为list类型，表示待买入的股票
 # 输出：none
-def buy_operation(context, list_to_buy):
-    for stock_buy in list_to_buy:
+def buy_operation(context, df_to_buy):
+    
+    for stock_buy in df_to_buy.index:
         # 为每个持仓股票分配资金
         g.capital_unit=context.portfolio.portfolio_value/g.num_stocks
         # 买入在"待买股票列表"的股票
-        order_target_value(stock_buy, g.capital_unit)
+        if df_to_buy.loc[stock_buy,'todo'] == 'buy':
+            order_now = order_target_value(stock_buy, g.capital_unit)
+            if not order_now is None:
+                list_now = []
+                list_now.append(stock_buy)
+                df_now = pd.DataFrame([['buy', order_now.price]], index=list_now, columns=['lastdo', 'price'])
+                # price 是买入价，并不是成本价
+                g.df_hold = g.df_hold.append(df_now)
+                # log.info(g.df_hold)
+    
