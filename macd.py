@@ -46,6 +46,7 @@ def before_trading_start(context):
         set_slip_fee(context)                 # 设置手续费与手续费
         # 设置可行股票池
         g.feasible_stocks = set_feasible_stocks(g.stocks,context)
+        g.feasible_stocks = ['000001.XSHE', '000002.XSHE']
     g.t+=1
     
 #4
@@ -116,8 +117,12 @@ def handle_data(context,data):
         # test 
         df_can_buy = ['000001.XSHE']
         df_list_can_buy = pd.DataFrame(index=list_can_buy,columns=['todo', 'done'])
+            index       todo    done
+            000001.XSHE buy     notdo
+            todo buy, add1, add2, stop, sell
+            买，加1，加2，止损，清仓
         df_list_can_buy.loc['000001.XSHE', 'todo'] = 'buy'
-        log.info(df_list_can_buy)
+        log.info(df_can_buy)
         # 000001.XSHE  buy  NaN
         '''
         
@@ -126,7 +131,7 @@ def handle_data(context,data):
         # 过滤掉当日停牌的股票
         list_to_sell = remove_paused_stock(list_to_sell,context)
         # 需买入的股票
-        list_to_buy = pick_buy_list(context, list_can_buy, list_to_sell)
+        list_to_buy = pick_buy_list(context, df_can_buy.index, list_to_sell)
         # 卖出操作
         sell_operation(list_to_sell)
         # 买入操作
@@ -135,17 +140,22 @@ def handle_data(context,data):
     
 def stocks_can_buy(context, list_stock):
     df_can_buy = pd.DataFrame(columns=['todo', 'done'])
+    
     for i in list_stock:
         DIF, DEA, MACD = mmacd(i)
         # DIF 上穿 0 轴 并且 MACD 红柱发散
-        if DIF[-2] < 0 and DIF[-1] > 0 and MACD[-2] > MACD[-1] and MACD[-2] > 0:
-            df_can_buy.append(pd.DataFrame(['buy',], index=i, columns=['todo', 'done'])
-            
+        buy_list = []
+        if DIF[-2] < 0 and DIF[-1] > 0:# and MACD[-2] > MACD[-1] and MACD[-2] > 0:
+            buy_list.append(i)
+            df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
+            df_can_buy = df_can_buy.append(df_now)
+        #log.info(df_can_buy)
+    
     return df_can_buy
     
 def mmacd(stock, fastperiod=12, slowperiod=26, signalperiod=9):
     close_data = attribute_history(stock, 100, unit='1d', fields=('close'))
-    return talib.MACD(price, fastperiod=12, slowperiod=26, signalperiod=9)
+    return talib.MACD(close_data['close'].values, fastperiod=12, slowperiod=26, signalperiod=9)
     
 #8
 # 获得卖出信号
@@ -158,7 +168,7 @@ def stocks_to_sell(context):
         return list_to_sell
     for i in df_hold.index:
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
-        DIF, DEA, MACD = mmacd(close_data['close'].values)
+        DIF, DEA, MACD = mmacd(i)
         #log.info(DIF, DEA, MACD)
     return list_to_sell
     
