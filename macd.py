@@ -132,11 +132,12 @@ def handle_data(context,data):
         # 过滤掉当日停牌的股票
         list_to_sell = remove_paused_stock(list_to_sell,context)
         # 需买入的股票
-        df_to_buy = pick_buy_list(context, df_can_buy.index, list_to_sell)
+        df_to_buy = pick_buy_df(context, df_can_buy, list_to_sell)
+        # df_to_buy = df_can_buy
         # 卖出操作
         
         # 测试
-        list_to_sell = g.df_hold.index
+        # list_to_sell = g.df_hold.index
         
         sell_operation(list_to_sell)
         # 买入操作
@@ -147,20 +148,46 @@ def stocks_can_buy(context, list_stock):
     df_can_buy = pd.DataFrame(columns=['todo', 'done'])
     
     for i in list_stock:
-        DIF, DEA, MACD = mmacd(i)
+        close_data = attribute_history(i, 100, unit='1d', fields=('close'))
+        DIF, DEA, MACD = mmacd(close_data['close'].values)
         # DIF 上穿 0 轴 并且 MACD 红柱发散
+        # todo DIF已上穿若干天后，MACD 红柱发散
         buy_list = []
-        if DIF[-2] < 0 and DIF[-1] > 0:# and MACD[-2] > MACD[-1] and MACD[-2] > 0:
+        if DIF[-2] < 0 and DIF[-1] > 0 and MACD[-2] > MACD[-1] and MACD[-2] > 0:
             buy_list.append(i)
-            df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
-            df_can_buy = df_can_buy.append(df_now)
-        #log.info(df_can_buy)
+            if i in g.df_hold.index:
+                if g.df_hold.loc[i,'lastdo'] == 'buy':
+                    str_do = 'add1'
+                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                    df_can_buy = df_can_buy.append(df_now)
+                elif g.df_hold.loc[i,'lastdo'] == 'add1':
+                    str_do = 'add2'
+                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                    df_can_buy = df_can_buy.append(df_now)
+            else:
+                df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
+                df_can_buy = df_can_buy.append(df_now)
+        # 加仓
+        elif MACD[-2]<0 and MACD[-1]>0:
+            if i in g.df_hold.index:
+                buy_list.append(i)
+                if g.df_hold.loc[i,'lastdo'] == 'buy':
+                    str_do = 'add1'
+                    df_can_buy = df_can_buy.append(
+                        pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        )
+                elif g.df_hold.loc[i,'lastdo'] == 'add1':
+                    str_do = 'add2'
+                    df_can_buy = df_can_buy.append(
+                        pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        )
+            log.info(df_can_buy)
     
     return df_can_buy
     
-def mmacd(stock, fastperiod=12, slowperiod=26, signalperiod=9):
-    close_data = attribute_history(stock, 100, unit='1d', fields=('close'))
-    return talib.MACD(close_data['close'].values, fastperiod=12, slowperiod=26, signalperiod=9)
+def mmacd(price, fastperiod=12, slowperiod=26, signalperiod=9):
+    
+    return talib.MACD(price, fastperiod=12, slowperiod=26, signalperiod=9)
     
 #8
 # 获得卖出信号
@@ -173,34 +200,26 @@ def stocks_to_sell(context):
         return list_to_sell
     for i in g.df_hold.index:
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
-        DIF, DEA, MACD = mmacd(i)
+        DIF, DEA, MACD = mmacd(close_data['close'].values)
         #log.info(DIF, DEA, MACD)
     return list_to_sell
     
 # 获得买入的list_to_buy
 # 输入list_can_buy 为list，可以买的队列
 # 输出list_to_buy 为list，买入的队列
-def pick_buy_list(context, list_can_buy, list_to_sell):
-    df_to_buy = pd.DataFrame(columns=['todo', 'done'])
+def pick_buy_df(context, df_can_buy, list_to_sell):
+    # df_to_buy = pd.DataFrame(columns=['todo', 'done'])
     # 要买数 = 可持数 - 持仓数 + 要卖数
+    # todo 要买数仍要修正
     buy_num = g.num_stocks - len(context.portfolio.positions.keys()) + len(list_to_sell)
     if buy_num <= 0:
         return df_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
     # 排序-------------------------------------------------
-    ad_num = 0;
     
-    for i in list_can_buy:
-        if i not in context.portfolio.positions.keys():
-            list_to_buy = []
-            list_to_buy.append(i)
-            # todo 检查是否已买
-            df_now = pd.DataFrame([['buy', 'notdo']], index=list_to_buy, columns=['todo', 'done'])
-            df_to_buy = df_to_buy.append(df_now)
-            ad_num = ad_num + 1
-        if ad_num >= buy_num:
-            break
-    return df_to_buy
+    
+
+    return df_can_buy[0:buy_num]
 
 
 '''
@@ -236,4 +255,18 @@ def buy_operation(context, df_to_buy):
                 # price 是买入价，并不是成本价
                 g.df_hold = g.df_hold.append(df_now)
                 # log.info(g.df_hold)
-    
+        elif df_to_buy.loc[stock_buy,'todo'] == 'add1':
+            # 加仓
+            order_now = order_target_value(stock_buy, g.capital_unit*2)
+            if not order_now is None:
+                # price 是买入价，并不是成本价
+                g.df_hold.loc[stock_buy, 'lastdo'] = 'add1'
+                g.df_hold.loc[stock_buy, 'price'] = order_now.price
+        elif df_to_buy.loc[stock_buy,'todo'] == 'add2':
+            # 加2仓
+            order_now = order_target_value(stock_buy, g.capital_unit*2.5)
+            if not order_now is None:
+                # price 是买入价，并不是成本价
+                g.df_hold.loc[stock_buy, 'lastdo'] = 'add2'
+                g.df_hold.loc[stock_buy, 'price'] = order_now.price
+        #log.info(g.df_hold)
