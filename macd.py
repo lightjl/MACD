@@ -128,20 +128,20 @@ def handle_data(context,data):
         '''
         # data.drop(n)可以删除第i行
         # 待卖出的股票，list类型
-        list_to_sell = stocks_to_sell(context)
-        # 过滤掉当日停牌的股票
-        list_to_sell = remove_paused_stock(list_to_sell,context)
+        df_to_sell = stocks_to_sell(context)
         # 需买入的股票
-        df_to_buy = pick_buy_df(context, df_can_buy, list_to_sell)
+        df_to_buy = pick_buy_df(context, df_can_buy, df_to_sell.index)
         # df_to_buy = df_can_buy
         # 卖出操作
         
         # 测试
         # list_to_sell = g.df_hold.index
         
-        sell_operation(list_to_sell)
+        sell_operation(context, df_to_sell)
         # 买入操作
         buy_operation(context, df_to_buy)
+        
+        log.info(g.df_hold)
     g.if_trade = False
     
 def stocks_can_buy(context, list_stock):
@@ -181,7 +181,7 @@ def stocks_can_buy(context, list_stock):
                     df_can_buy = df_can_buy.append(
                         pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
                         )
-            log.info(df_can_buy)
+            
     
     return df_can_buy
     
@@ -194,15 +194,31 @@ def mmacd(price, fastperiod=12, slowperiod=26, signalperiod=9):
 # 输入：context（见API文档）, list_to_buy为list类型，代表待买入的股票
 # 输出：list_to_sell为list类型，表示待卖出的股票
 def stocks_to_sell(context):
-    list_to_sell = []
+    df_to_sell = pd.DataFrame(columns=['todo', 'done'])
     
     if g.df_hold.empty:
-        return list_to_sell
-    for i in g.df_hold.index:
+        return df_to_sell
+    
+    # 过滤掉当日停牌的股票
+    list_can_sell = remove_paused_stock(g.df_hold.index,context)
+    
+    for i in list_can_sell:
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
+        # 跌5个点止损
+        sell_list = []
+        if g.df_hold.loc[i,'price'] < close_data['close'][-1]*0.95:
+            sell_list.append(i)
+            # 止损2次清仓 
+            if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
+                df_now = pd.DataFrame([['sell', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_to_sell = df_to_sell.append(df_now)                
+            else:
+                df_now = pd.DataFrame([['stop', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_to_sell = df_to_sell.append(df_now)
         #log.info(DIF, DEA, MACD)
-    return list_to_sell
+        
+    return df_to_sell
     
 # 获得买入的list_to_buy
 # 输入list_can_buy 为list，可以买的队列
@@ -215,9 +231,7 @@ def pick_buy_df(context, df_can_buy, list_to_sell):
     if buy_num <= 0:
         return df_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
-    # 排序-------------------------------------------------
-    
-    
+    # 排序--------------------------------------------------------------------------------排序 
 
     return df_can_buy[0:buy_num]
 
@@ -230,11 +244,22 @@ def pick_buy_df(context, df_can_buy, list_to_sell):
 # 执行卖出操作
 # 输入：list_to_sell为list类型，表示待卖出的股票
 # 输出：none
-def sell_operation(list_to_sell):
-    for stock_sell in list_to_sell:
-        order_now = order_target_value(stock_sell, 0)
-        if not order_now is None:
-            g.df_hold = g.df_hold.drop(stock_sell)
+def sell_operation(context, df_to_sell):
+    # context.portfolio.positions 当前持有的股票(包含不可卖出的股票), 一个dict, key是股票代码, value是Position对象
+    # context.portfolio.positions[stock_sell]
+    # total_amount 总持有股票数量, 包含可卖出和不可卖出部分
+    # sellable_amount 可卖出数量
+    # price 最新价格
+    for stock_sell in df_to_sell.index:
+        if df_to_sell.loc[stock_sell, 'todo'][0:4] == 'stop':
+            dict_stock = context.portfolio.positions[stock_sell]
+            sell_num = min(dict_stock.total_amount/2, dict_stock.sellable_amount)
+            order_now = order_target(stock_sell, sell_num)
+            
+            if not order_now is None:
+                g.df_hold.loc[stock_sell, 'lastdo'] = 'stop' + g.df_hold.loc[stock_sell, 'lastdo']
+                g.df_hold.loc[stock_sell, 'price'] = 0
+                log.info(g.df_hold)
         
 #10
 # 执行买入操作
