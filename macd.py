@@ -141,7 +141,7 @@ def handle_data(context,data):
         # 买入操作
         buy_operation(context, df_to_buy)
         
-        log.info(g.df_hold)
+        
     g.if_trade = False
     
 def stocks_can_buy(context, list_stock):
@@ -152,10 +152,11 @@ def stocks_can_buy(context, list_stock):
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         # DIF 上穿 0 轴 并且 MACD 红柱发散
         # todo DIF已上穿若干天后，MACD 红柱发散
-        buy_list = []
         if DIF[-2] < 0 and DIF[-1] > 0 and MACD[-2] > MACD[-1] and MACD[-2] > 0:
+            buy_list = []
             buy_list.append(i)
             if i in g.df_hold.index:
+                # 买->加1->加2；去掉stop
                 if g.df_hold.loc[i,'lastdo'] == 'buy':
                     str_do = 'add1'
                     df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
@@ -169,6 +170,7 @@ def stocks_can_buy(context, list_stock):
                 df_can_buy = df_can_buy.append(df_now)
         # 加仓
         elif MACD[-2]<0 and MACD[-1]>0:
+            buy_list = []
             if i in g.df_hold.index:
                 buy_list.append(i)
                 if g.df_hold.loc[i,'lastdo'] == 'buy':
@@ -206,10 +208,23 @@ def stocks_to_sell(context):
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         # 跌5个点止损
-        sell_list = []
+        
         if g.df_hold.loc[i,'price'] < close_data['close'][-1]*0.95:
+            # 止损条件1
+            sell_list = []
             sell_list.append(i)
             # 止损2次清仓 
+            if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
+                df_now = pd.DataFrame([['sell', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_to_sell = df_to_sell.append(df_now)                
+            else:
+                df_now = pd.DataFrame([['stop', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_to_sell = df_to_sell.append(df_now)
+                
+        if DIF[-1]<0 or MACD[-1]<0 :
+            # 止损条件2
+            sell_list = []
+            sell_list.append(i)
             if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
                 df_now = pd.DataFrame([['sell', 'notdo']], index=sell_list, columns=['todo', 'done'])
                 df_to_sell = df_to_sell.append(df_now)                
@@ -250,8 +265,23 @@ def sell_operation(context, df_to_sell):
     # total_amount 总持有股票数量, 包含可卖出和不可卖出部分
     # sellable_amount 可卖出数量
     # price 最新价格
+    if len(df_to_sell.index) > 0:
+        log.info(g.df_hold)
     for stock_sell in df_to_sell.index:
+        if g.df_hold.loc[stock_sell, 'lastdo'] == 'sell':
+            # 清仓上次没清的
+            dict_stock = context.portfolio.positions[stock_sell]
+            order_now = order_target(stock_sell, 0)
+            if not order_now is None:
+                if dict_stock.total_amount == dict_stock.sellable_amount:
+                    g.df_hold = g.df_hold.drop(stock_sell)
+                else:
+                    # 没清完，下次清
+                    g.df_hold.loc[stock_sell, 'lastdo'] = 'sell'
+            continue
+            
         if df_to_sell.loc[stock_sell, 'todo'][0:4] == 'stop':
+            # 止损
             dict_stock = context.portfolio.positions[stock_sell]
             sell_num = min(dict_stock.total_amount/2, dict_stock.sellable_amount)
             order_now = order_target(stock_sell, sell_num)
@@ -259,8 +289,20 @@ def sell_operation(context, df_to_sell):
             if not order_now is None:
                 g.df_hold.loc[stock_sell, 'lastdo'] = 'stop' + g.df_hold.loc[stock_sell, 'lastdo']
                 g.df_hold.loc[stock_sell, 'price'] = 0
-                log.info(g.df_hold)
-        
+                
+        elif df_to_sell.loc[stock_sell, 'todo'][0:4] == 'sell':
+            # 清仓
+            dict_stock = context.portfolio.positions[stock_sell]
+            order_now = order_target(stock_sell, 0)
+            if not order_now is None:
+                if dict_stock.total_amount == dict_stock.sellable_amount:
+                    g.df_hold = g.df_hold.drop(stock_sell)
+                else:
+                    # 没清完，下次清
+                    g.df_hold.loc[stock_sell, 'lastdo'] = 'sell'
+                
+
+  
 #10
 # 执行买入操作
 # 输入：context(见API)；list_to_buy为list类型，表示待买入的股票
