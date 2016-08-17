@@ -1,0 +1,38 @@
+    'df_now':              todo   done
+002292.XSHE  stop  notdo,
+    'df_to_sell':              todo   done (300146.XSHE, todo)
+002007.XSHE  sell  notdo                sell
+002400.XSHE  sell  notdo                sell
+002653.XSHE  sell  notdo                sell
+300146.XSHE  sell  notdo                sell,
+    'i': u'002292.XSHE',
+    'list_can_sell': [   u'002007.XSHE',
+                         u'002400.XSHE',
+                         u'002653.XSHE',
+                         u'300146.XSHE',
+                         u'600332.XSHG',
+                         u'002292.XSHE',
+                         u'002353.XSHE',
+                         u'300058.XSHE'],
+    'sell_list': [u'002292.XSHE']}
+------------
+  File "user_code.py", line 231, in stocks_to_sell
+    df_to_sell = df_to_sell.append(df_now)
+
+{   'concat': <function concat at 0x7fbda521b1b8>,
+    'ignore_index': False,
+    'other':              todo   done
+002292.XSHE  stop  notdo,
+    'self':              todo   done (300146.XSHE, todo)
+002007.XSHE  sell  notdo                sell
+002400.XSHE  sell  notdo                sell
+002653.XSHE  sell  notdo                sell
+300146.XSHE  sell  notdo                sell,
+    'to_concat': [                todo   done (300146.XSHE, todo)
+002007.XSHE  sell  notdo                sell
+002400.XSHE  sell  notdo                sell
+002653.XSHE  sell  notdo                sell
+300146.XSHE  sell  notdo                sell,
+                                  todo   done
+002292.XSHE  stop  notdo],
+    'verify_integrity': False}
