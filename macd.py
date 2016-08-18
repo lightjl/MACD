@@ -133,7 +133,7 @@ def handle_data(context,data):
         # 待卖出的股票，list类型
         df_to_sell = stocks_to_sell(context)
         # 需买入的股票
-        df_to_buy = pick_buy_df(context, df_can_buy, df_to_sell.index)
+        df_to_buy = pick_buy_df(context, df_can_buy, df_to_sell)
         # df_to_buy = df_can_buy
         # 卖出操作
         
@@ -205,7 +205,7 @@ def mmacd(price, fastperiod=12, slowperiod=26, signalperiod=9):
 # 输入：context（见API文档）, list_to_buy为list类型，代表待买入的股票
 # 输出：list_to_sell为list类型，表示待卖出的股票
 def stocks_to_sell(context):
-    df_to_sell = pd.DataFrame(columns=['todo', 'done'])
+    df_to_sell = pd.DataFrame(columns=['todo'])
     
     if g.df_hold.empty:
         return df_to_sell
@@ -217,18 +217,20 @@ def stocks_to_sell(context):
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         # 跌5个点止损
-        
+        log.info(df_to_sell) 
         if g.df_hold.loc[i,'price']*0.95 < close_data['close'][-1]:
             # 止损条件1
             sell_list = []
             sell_list.append(i)
             # 止损2次清仓 
             if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
-                df_now = pd.DataFrame([['sell', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                
             else:
-                df_now = pd.DataFrame([['stop', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                
             
         if DIF[-1]<0 or MACD[-1]<0 :
             # 止损条件2
@@ -236,26 +238,34 @@ def stocks_to_sell(context):
             sell_list.append(i)
             if i in df_to_sell.index:
                 # 已达成止损条件1,直接清仓
-                df_to_sell[i, 'todo'] = 'sell'
+                # log.info('1', df_to_sell)
+                df_to_sell.loc[i, 'todo'] = 'sell'
+                # log.info('2', df_to_sell)
                 continue
             if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
-                df_now = pd.DataFrame([['sell', 'notdo']], index=sell_list, columns=['todo', 'done'])
-                df_to_sell = df_to_sell.append(df_now)                
-            else:
-                df_now = pd.DataFrame([['stop', 'notdo']], index=sell_list, columns=['todo', 'done'])
+                df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
-        #log.info(DIF, DEA, MACD)
+                
+            else:
+                df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
+                df_to_sell = df_to_sell.append(df_now)
+               
+        #log.info(df_to_sell)
         
     return df_to_sell
     
 # 获得买入的list_to_buy
 # 输入list_can_buy 为list，可以买的队列
 # 输出list_to_buy 为list，买入的队列
-def pick_buy_df(context, df_can_buy, list_to_sell):
+def pick_buy_df(context, df_can_buy, df_to_sell):
     # df_to_buy = pd.DataFrame(columns=['todo', 'done'])
     # 要买数 = 可持数 - 持仓数 + 要卖数
     # todo 要买数仍要修正
-    buy_num = g.num_stocks - len(context.portfolio.positions.keys()) + len(list_to_sell)
+    if len(df_to_sell):
+        len_sell = len(df_to_sell.index)
+    else:
+        len_sell = 0
+    buy_num = g.num_stocks - len(context.portfolio.positions.keys()) + len_sell
     if buy_num <= 0:
         return df_to_buy
     # 得到一个dataframe：index为股票代码，data为相应的PEG值
