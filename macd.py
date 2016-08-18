@@ -50,7 +50,7 @@ def before_trading_start(context):
         
         g.feasible_stocks = ['000001.XSHE', '000002.XSHE', '000004.XSHE', '000005.XSHE', '000006.XSHE', '000007.XSHE', '000008.XSHE', '000009.XSHE']
         g.feasible_stocks = set_feasible_stocks(g.stocks,context)
-        # g.feasible_stocks = ['000004.XSHE']
+        # g.feasible_stocks = ['000001.XSHE']
     g.t+=1
     
 #4
@@ -69,6 +69,8 @@ def set_feasible_stocks(initial_stocks,context):
     df_st_info = get_extras('is_st',unsuspened_stocks,start_date=context.current_dt,end_date=context.current_dt)
     df_st_info = df_st_info.T
     df_st_info.rename(columns={df_st_info.columns[0]:'is_st'}, inplace=True)
+    st_stocks = list(df_st_info.index[df_st_info.is_st == True])
+    # log.info(st_stocks)没有ST的
     unsuspened_stocks = list(df_st_info.index[df_st_info.is_st == False])
     return unsuspened_stocks
 
@@ -192,6 +194,10 @@ def stocks_can_buy(context, list_stock):
                     df_can_buy = df_can_buy.append(
                         pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
                         )
+                elif g.df_hold.loc[i,'lastdo'][0:4] == 'stop':
+                    str_do = 'fromstop'
+                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                    df_can_buy = df_can_buy.append(df_now)
             
     
     return df_can_buy
@@ -217,8 +223,8 @@ def stocks_to_sell(context):
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         # 跌5个点止损
-        log.info(df_to_sell) 
-        if g.df_hold.loc[i,'price']*0.95 < close_data['close'][-1]:
+        
+        if g.df_hold.loc[i,'price']*0.95 >= close_data['close'][-1]:
             # 止损条件1
             sell_list = []
             sell_list.append(i)
@@ -226,29 +232,32 @@ def stocks_to_sell(context):
             if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
                 df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                log.info('跌价清仓', df_to_sell)
                 
             else:
                 df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                log.info('跌价止损', df_to_sell)
                 
             
-        if DIF[-1]<0 or MACD[-1]<0 :
-            # 止损条件2
+        if (DIF[-2]>=0 and DIF[-1]<0) or (MACD[-2]>=0 and MACD[-1]<0):
+            # 止损条件2 DIF或MACD下穿
             sell_list = []
             sell_list.append(i)
             if i in df_to_sell.index:
                 # 已达成止损条件1,直接清仓
-                # log.info('1', df_to_sell)
                 df_to_sell.loc[i, 'todo'] = 'sell'
-                # log.info('2', df_to_sell)
+                log.info('跌价又MACD', df_to_sell)
                 continue
             if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
                 df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                log.info('MACD清仓', df_to_sell)
                 
             else:
                 df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
+                log.info('MACD止损', df_to_sell)
                
         #log.info(df_to_sell)
         
@@ -258,7 +267,7 @@ def stocks_to_sell(context):
 # 输入list_can_buy 为list，可以买的队列
 # 输出list_to_buy 为list，买入的队列
 def pick_buy_df(context, df_can_buy, df_to_sell):
-    # df_to_buy = pd.DataFrame(columns=['todo', 'done'])
+    df_to_buy = pd.DataFrame(columns=['todo', 'done'])
     # 要买数 = 可持数 - 持仓数 + 要卖数
     # todo 要买数仍要修正
     if len(df_to_sell):
@@ -361,5 +370,6 @@ def buy_operation(context, df_to_buy):
         elif df_to_buy.loc[stock_buy,'todo'] == 'fromstop':
             #回仓
             dict_stock = context.portfolio.positions[stock_buy]
+            g.df_hold.loc[stock_buy, 'lastdo'] = g.df_hold.loc[stock_buy, 'lastdo'][4:]
             order_now = order_target(stock_buy, dict_stock.total_amount*2)
         #log.info(g.df_hold)
