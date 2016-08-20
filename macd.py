@@ -21,7 +21,7 @@ def set_params():
     g.num_stocks = 10                                       # 每次调仓选取的最大股票数量
     g.stocks=get_index_stocks('000300.XSHG')                # 设置沪深300为初始股票池
     g.per = 0.1                                             # EPS增长率不低于0.25
-    g.df_hold = pd.DataFrame(columns=['lastdo', 'price'])   # 维护持有df
+    g.df_hold = pd.DataFrame(columns=['lastdo', 'price', 'buy_date'])   # 维护持有df
 
 #2
 #设置中间变量
@@ -50,6 +50,7 @@ def before_trading_start(context):
         
         g.feasible_stocks = ['000001.XSHE', '000002.XSHE', '000004.XSHE', '000005.XSHE', '000006.XSHE', '000007.XSHE', '000008.XSHE', '000009.XSHE']
         g.feasible_stocks = set_feasible_stocks(g.stocks,context)
+        # g.feasible_stocks = ['002482.XSHE']
         # g.feasible_stocks = ['000001.XSHE']
     g.t+=1
     
@@ -227,8 +228,12 @@ def stocks_to_sell(context):
         close_data = attribute_history(i, 100, unit='1d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         
-        # 跌5个点止损        
-        if g.df_hold.loc[i,'price']*0.95 >= close_data['close'][-1]:
+        # 跌5个点止损, 记住用复权价格
+        dates_buy = (context.current_dt - g.df_hold.loc[i,'buy_date']).days
+        factor_history = attribute_history(i, dates_buy, unit='1d', fields=('factor'))
+        log.info('buy_date: ', g.df_hold.loc[i,'buy_date'], ' buyPrice: ', g.df_hold.loc[i,'price']*0.95*factor_history['factor'][-1*dates_buy])
+        if g.df_hold.loc[i,'price']*0.95*factor_history['factor'][-1*dates_buy] \
+            >= close_data['close'][-1]:
             # 止损条件1
             sell_list = []
             sell_list.append(i)
@@ -364,7 +369,8 @@ def buy_operation(context, df_to_buy):
             if not order_now is None:
                 list_now = []
                 list_now.append(stock_buy)
-                df_now = pd.DataFrame([['buy', order_now.price]], index=list_now, columns=['lastdo', 'price'])
+                df_now = pd.DataFrame([['buy', order_now.price, context.current_dt]], \
+                    index=list_now, columns=['lastdo', 'price', 'buy_date'])
                 # price 是买入价，并不是成本价
                 g.df_hold = g.df_hold.append(df_now)
                 # log.info(g.df_hold)
@@ -375,6 +381,7 @@ def buy_operation(context, df_to_buy):
                 # price 是买入价，并不是成本价
                 g.df_hold.loc[stock_buy, 'lastdo'] = 'add1'
                 g.df_hold.loc[stock_buy, 'price'] = order_now.price
+                g.df_hold.loc[stock_buy, 'buy_date'] = context.current_dt
         elif df_to_buy.loc[stock_buy,'todo'] == 'add2':
             # 加2仓
             order_now = order_target_value(stock_buy, g.capital_unit*2.5)
@@ -382,9 +389,14 @@ def buy_operation(context, df_to_buy):
                 # price 是买入价，并不是成本价
                 g.df_hold.loc[stock_buy, 'lastdo'] = 'add2'
                 g.df_hold.loc[stock_buy, 'price'] = order_now.price
+                g.df_hold.loc[stock_buy, 'buy_date'] = context.current_dt
         elif df_to_buy.loc[stock_buy,'todo'] == 'fromstop':
             #回仓
             dict_stock = context.portfolio.positions[stock_buy]
-            g.df_hold.loc[stock_buy, 'lastdo'] = g.df_hold.loc[stock_buy, 'lastdo'][4:]
             order_now = order_target(stock_buy, dict_stock.total_amount*2)
+            if not order_now is None:
+                g.df_hold.loc[stock_buy, 'lastdo'] = g.df_hold.loc[stock_buy, 'lastdo'][4:]
+                g.df_hold.loc[stock_buy, 'price'] = order_now.price
+                g.df_hold.loc[stock_buy, 'buy_date'] = context.current_dt
+            
         #log.info(g.df_hold)
