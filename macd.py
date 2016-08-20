@@ -244,8 +244,8 @@ def stocks_to_sell(context):
                 #log.info('跌价止损', df_to_sell)
                 
             
-        if (DIF[-2]>=0 and DIF[-1]<0) or (MACD[-2]>=0 and MACD[-1]<0):
-            # 止损条件2 DIF或MACD下穿
+        if (MACD[-2]>=0 and MACD[-1]<0):
+            # 止损条件2 MACD下穿
             sell_list = []
             sell_list.append(i)
             if i in df_to_sell.index:
@@ -262,7 +262,18 @@ def stocks_to_sell(context):
                 df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
                 #log.info('MACD止损', df_to_sell)
-               
+        
+        if context.portfolio.positions[i] >= close_data['close'][-1] * 0.9:
+            #亏损 10% 清仓
+            sell_list = []
+            sell_list.append(i)
+            if i in df_to_sell.index:
+                # 已达成止损条件动作改为清仓
+                df_to_sell.loc[i, 'todo'] = 'sell'
+                #log.info('跌价又MACD', df_to_sell)
+                continue
+            df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
+            df_to_sell = df_to_sell.append(df_now)
         #log.info(df_to_sell)
         
     return df_to_sell
