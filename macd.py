@@ -263,7 +263,7 @@ def stocks_to_sell(context):
                 df_to_sell = df_to_sell.append(df_now)
                 #log.info('MACD止损', df_to_sell)
         
-        if context.portfolio.positions[i] >= close_data['close'][-1] * 0.9:
+        if context.portfolio.positions[i].avg_cost *0.9 >= close_data['close'][-1]:
             #亏损 10% 清仓
             sell_list = []
             sell_list.append(i)
