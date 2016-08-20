@@ -178,7 +178,7 @@ def stocks_can_buy(context, list_stock):
                     df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
                     df_can_buy = df_can_buy.append(df_now)
                     
-            else:
+            elif i not in g.df_hold.index:
                 df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
                 df_can_buy = df_can_buy.append(df_now)
         # 加仓
