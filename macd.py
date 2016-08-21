@@ -160,7 +160,7 @@ def stocks_can_buy(context, list_stock):
         date_price = attribute_history(i, 5, unit='1d', fields=('open', 'close'))
         # 周MACD柱上升
         # log.info('DIF', DIF, 'MACD', MACD)
-        if MACD[-1] > MACD[-2]:
+        if MACD[-1] > MACD[-2] and MACD[-2] > MACD[-3] and MACD[-1] < 0:
             if date_price['close'][-1]>date_price['close'][-2] and date_price['close'][-2]<date_price['close'][-3] \
                 and date_price['close'][-3]<date_price['close'][-4] and date_price['close'][-4]<date_price['close'][-5]:
                 buy_list = []
