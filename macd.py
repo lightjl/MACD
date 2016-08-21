@@ -249,8 +249,8 @@ def stocks_to_sell(context):
                 #log.info('跌价止损', df_to_sell)
                 
             
-        if (MACD[-2]>=0 and MACD[-1]<0):
-            # 止损条件2 MACD下穿
+        if (DIF[-2]>=0 and DIF[-1]<0):
+            # 止损条件2 DIF下穿
             sell_list = []
             sell_list.append(i)
             if i in df_to_sell.index:
