@@ -154,34 +154,42 @@ def stocks_can_buy(context, list_stock):
     df_can_buy = pd.DataFrame(columns=['todo', 'done'])
     
     for i in list_stock:
-        close_data = attribute_history(i, 100, unit='1d', fields=('close'))
-        DIF, DEA, MACD = mmacd(close_data['close'].values)
-        open_data = attribute_history(i, 5, unit='1d', fields=('open'))
-        # DIF 上穿 0 轴 并且 MACD 红柱发散
-        # todo DIF已上穿若干天后，MACD 红柱发散
+        # 周K升
+        week_price = attribute_history(i, 100, unit='5d', fields=('close'))
+        DIF, DEA, MACD = mmacd(week_price['close'].values)
+        date_price = attribute_history(i, 5, unit='1d', fields=('open', 'close'))
+        # 周MACD柱上升
         # log.info('DIF', DIF, 'MACD', MACD)
-        if DIF[-2] < 0 and DIF[-1] > 0 and MACD[-1] > MACD[-2] and MACD[-2] > 0 \
-            and close_data['close'][-1] > open_data['open'][-1]:
-            buy_list = []
-            buy_list.append(i)
-            if i in g.df_hold.index and close_data['close'][-1] > g.df_hold.loc[i, 'price']:
-                # 买->加1->加2；去掉stop
-                if g.df_hold.loc[i,'lastdo'] == 'buy':
-                    str_do = 'add1'
-                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+        if MACD[-1] > MACD[-2]:
+            if date_price['close'][-1]>date_price['close'][-2] and date_price['close'][-2]<date_price['close'][-3] \
+                and date_price['close'][-3]<date_price['close'][-4] and date_price['close'][-4]<date_price['close'][-5]:
+                buy_list = []
+                buy_list.append(i)
+                
+                if i in g.df_hold.index and date_price['close'][-1] > g.df_hold.loc[i, 'price']:
+                    # 去掉stop
+                    if g.df_hold.loc[i,'lastdo'][0:4] == 'stop':
+                        str_do = 'fromstop'
+                        df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        df_can_buy = df_can_buy.append(df_now)
+                    '''
+                    if g.df_hold.loc[i,'lastdo'] == 'buy':
+                        str_do = 'add1'
+                        df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        df_can_buy = df_can_buy.append(df_now)
+                    elif g.df_hold.loc[i,'lastdo'] == 'add1':
+                        str_do = 'add2'
+                        df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        df_can_buy = df_can_buy.append(df_now)
+                    elif g.df_hold.loc[i,'lastdo'][0:4] == 'stop':
+                        str_do = 'fromstop'
+                        df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
+                        df_can_buy = df_can_buy.append(df_now)
+                    '''
+                elif i not in g.df_hold.index:
+                    df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
                     df_can_buy = df_can_buy.append(df_now)
-                elif g.df_hold.loc[i,'lastdo'] == 'add1':
-                    str_do = 'add2'
-                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
-                    df_can_buy = df_can_buy.append(df_now)
-                elif g.df_hold.loc[i,'lastdo'][0:4] == 'stop':
-                    str_do = 'fromstop'
-                    df_now = pd.DataFrame([[str_do, 'notdo']], index=buy_list, columns=['todo', 'done'])
-                    df_can_buy = df_can_buy.append(df_now)
-                    
-            elif i not in g.df_hold.index:
-                df_now = pd.DataFrame([['buy', 'notdo']], index=buy_list, columns=['todo', 'done'])
-                df_can_buy = df_can_buy.append(df_now)
+                
         # 加仓
         '''
         elif MACD[-2]<0 and MACD[-1]>0:
@@ -225,15 +233,17 @@ def stocks_to_sell(context):
     list_can_sell = remove_paused_stock(g.df_hold.index,context)
     
     for i in list_can_sell:
-        close_data = attribute_history(i, 100, unit='1d', fields=('close'))
+        # 周K
+        close_data = attribute_history(i, 100, unit='5d', fields=('close'))
         DIF, DEA, MACD = mmacd(close_data['close'].values)
         
         # 跌5个点止损, 记住用复权价格
         dates_buy = (context.current_dt - g.df_hold.loc[i,'buy_date']).days
-        factor_history = attribute_history(i, dates_buy, unit='1d', fields=('factor'))
-        log.info('buy_date: ', g.df_hold.loc[i,'buy_date'], ' buyPrice: ', g.df_hold.loc[i,'price']*0.95*factor_history['factor'][-1*dates_buy])
-        if g.df_hold.loc[i,'price']*0.95*factor_history['factor'][-1*dates_buy] \
-            >= close_data['close'][-1]:
+        dates_buy = max(dates_buy, 2)
+        date_data = attribute_history(i, dates_buy, unit='1d', fields=('factor', 'close'))
+        # log.info('buy_date: ', g.df_hold.loc[i,'buy_date'], ' buyPrice: ', g.df_hold.loc[i,'price']*0.95*factor_history['factor'][-1*dates_buy])
+        if g.df_hold.loc[i,'price']*0.95*date_data['factor'][-1*dates_buy] \
+            >= date_data['close'][-1]:
             # 止损条件1
             sell_list = []
             sell_list.append(i)
@@ -248,25 +258,15 @@ def stocks_to_sell(context):
                 df_to_sell = df_to_sell.append(df_now)
                 #log.info('跌价止损', df_to_sell)
                 
-            
-        if (MACD[-2]>=0 and MACD[-1]<0):
-            # 止损条件2 MACD下穿
-            sell_list = []
-            sell_list.append(i)
+        # 清仓条件： 周MACD降；价格跌
+        if (MACD[-2]>MACD[-1]) and date_data['close'][-1] < date_data['close'][-2]:
             if i in df_to_sell.index:
-                # 已达成止损条件1,直接清仓
                 df_to_sell.loc[i, 'todo'] = 'sell'
-                #log.info('跌价又MACD', df_to_sell)
-                continue
-            if g.df_hold.loc[i, 'lastdo'][0:4] == 'stop':
+            else:
+                sell_list = []
+                sell_list.append(i)
                 df_now = pd.DataFrame([['sell']], index=sell_list, columns=['todo'])
                 df_to_sell = df_to_sell.append(df_now)
-                #log.info('MACD清仓', df_to_sell)
-                
-            else:
-                df_now = pd.DataFrame([['stop']], index=sell_list, columns=['todo'])
-                df_to_sell = df_to_sell.append(df_now)
-                #log.info('MACD止损', df_to_sell)
         
         if context.portfolio.positions[i].avg_cost *0.9 >= close_data['close'][-1]:
             #亏损 10% 清仓
